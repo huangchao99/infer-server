@@ -329,133 +329,101 @@ std::vector<Detection> PostProcessor::yolov8(
 
 // ============================================================
 // YOLOv11 后处理 (anchor-free, 单输出头融合格式)
+//
+// 实际输出格式（经诊断验证）：
+//   - bbox 分支：模型内部已完成 DFL解码 + anchor解码，直接输出绝对坐标 [x1,y1,x2,y2]
+//   - cls  分支：输出 logits (raw scores)，需要经过 sigmoid 转为概率 [0,1]
+//   - 内存布局：[N, A, C] = [1, 8400, 84]
+//     每 84 个连续 float 是一个 anchor 的完整数据：
+//     [x1, y1, x2, y2, cls0_logit, cls1_logit, ..., cls79_logit]
+//   - 注意bbox格式为[cx, cy, w, h] 格式不是[x1, y1, x2, y2]
 // ============================================================
+
 
 std::vector<Detection> PostProcessor::yolov11(
     const std::vector<float*>& outputs,
     const std::vector<TensorAttr>& attrs,
     int model_w, int model_h,
-    int orig_w, int orig_h,
+    int orig_w,  int orig_h,
     float conf_thresh, float nms_thresh,
     const std::vector<std::string>& labels)
 {
-    if (outputs.size() != 1 || attrs.size() != 1) {
-        LOG_ERROR("YOLOv11 expects 1 output head, got {}", outputs.size());
+    // 1. 基础校验
+    if (outputs.empty() || attrs.empty()) {
+        LOG_ERROR("YOLOv11: No output data");
         return {};
     }
 
-    // YOLOv11 RKNN 输出格式: [1, num_classes+4, num_anchors]
-    // 例如: [1, 84, 8400] 其中 84 = 4 (bbox) + 80 (classes)
-    // 8400 = 80×80 + 40×40 + 20×20 (三个尺度的所有 anchor 点)
     const float* data = outputs[0];
-    const auto& attr = attrs[0];
+    const auto&  attr = attrs[0];
 
-    if (attr.dims.size() < 3) {
-        LOG_ERROR("YOLOv11 expects 3D tensor (ignoring batch), got {}D", attr.dims.size());
-        return {};
-    }
-
-    // dims: [1, 84, 8400] 或 [1, 84, 8400, 0] (最后的 0 可忽略)
-    int num_channels = attr.dims[1];  // 84 = 4 + num_classes
-    int num_anchors = attr.dims[2];   // 8400
-    int num_classes = num_channels - 4;
-
-    if (num_classes <= 0) {
-        LOG_ERROR("YOLOv11: invalid num_channels={}, expected >= 4", num_channels);
-        return {};
-    }
-
-    LOG_DEBUG("YOLOv11 output: [{}, {}, {}] -> num_classes={}, num_anchors={}",
-              attr.dims[0], num_channels, num_anchors, num_classes, num_anchors);
+    // 预期 dims: [1, 84, 8400]
+    const int num_channels = attr.dims[1]; // 84
+    const int num_anchors  = attr.dims[2]; // 8400
+    const int num_classes  = num_channels - 4;
 
     std::vector<Detection> all_detections;
-    all_detections.reserve(num_anchors / 10);  // 预估
+    all_detections.reserve(200); // 预估检测物数量
 
-    // 生成 anchor 网格坐标
-    // 8400 = 80×80 (stride=8) + 40×40 (stride=16) + 20×20 (stride=32)
-    std::vector<std::pair<float, float>> anchor_points;  // (x, y)
-    std::vector<int> strides;
-    anchor_points.reserve(num_anchors);
-    strides.reserve(num_anchors);
-
-    // stride 8: 80×80
-    for (int y = 0; y < 80; y++) {
-        for (int x = 0; x < 80; x++) {
-            anchor_points.emplace_back((x + 0.5f) * 8, (y + 0.5f) * 8);
-            strides.push_back(8);
-        }
-    }
-    // stride 16: 40×40
-    for (int y = 0; y < 40; y++) {
-        for (int x = 0; x < 40; x++) {
-            anchor_points.emplace_back((x + 0.5f) * 16, (y + 0.5f) * 16);
-            strides.push_back(16);
-        }
-    }
-    // stride 32: 20×20
-    for (int y = 0; y < 20; y++) {
-        for (int x = 0; x < 20; x++) {
-            anchor_points.emplace_back((x + 0.5f) * 32, (y + 0.5f) * 32);
-            strides.push_back(32);
-        }
-    }
-
-    // 遍历所有 anchor 点
+    // 2. 遍历所有 Anchor 点 (8400个)
     for (int i = 0; i < num_anchors; i++) {
-        // 数据布局: [num_channels, num_anchors]
-        // 每个 anchor 的数据: [bbox(4), classes(num_classes)]
-        const float* bbox_data = data + i;  // stride = num_anchors
-        const float* class_data = data + (4 * num_anchors) + i;
+        
+        // ── A. 寻找最高置信度类别 ─────────────────────────────────────
+        // 类别通道从 Index 4 开始到 83
+        // 内存布局为 NCHW，所以访问方式是 data[(通道号) * num_anchors + anchor索引]
+        int   best_class = -1;
+        float best_score = -1.0f;
 
-        // 先检查类别置信度
-        int best_class = 0;
-        float best_score = class_data[0];
-        for (int c = 1; c < num_classes; c++) {
-            float score = class_data[c * num_anchors];
+        for (int c = 0; c < num_classes; c++) {
+            float score = data[(4 + c) * num_anchors + i];
             if (score > best_score) {
                 best_score = score;
                 best_class = c;
             }
         }
 
-        // YOLOv11 的 class score 需要 sigmoid
-        best_score = sigmoid(best_score);
+        // 阈值过滤 (根据实验，score 已经是概率值，无需再做 sigmoid)
         if (best_score < conf_thresh) continue;
 
-        // 解码 bbox: YOLOv11 输出的是相对于 anchor 点的距离
-        // bbox = [left, top, right, bottom]
-        float left   = bbox_data[0 * num_anchors];
-        float top    = bbox_data[1 * num_anchors];
-        float right  = bbox_data[2 * num_anchors];
-        float bottom = bbox_data[3 * num_anchors];
+        // ── B. 读取并转换 bbox 坐标 ──────────────────────────────────
+        // 根据实验结果，Index 0-3 分别是 cx, cy, w, h
+        float cx = data[0 * num_anchors + i];
+        float cy = data[1 * num_anchors + i];
+        float w  = data[2 * num_anchors + i];
+        float h  = data[3 * num_anchors + i];
 
-        // anchor 中心点
-        float cx = anchor_points[i].first;
-        float cy = anchor_points[i].second;
+        // 转换 [cx, cy, w, h] -> [x1, y1, x2, y2]
+        float x1 = cx - w * 0.5f;
+        float y1 = cy - h * 0.5f;
+        float x2 = cx + w * 0.5f;
+        float y2 = cy + h * 0.5f;
 
+        // ── C. 构造检测结果 ──────────────────────────────────────
         Detection det;
-        det.class_id = best_class;
+        det.class_id   = best_class;
         det.confidence = best_score;
-        det.bbox.x1 = cx - left;
-        det.bbox.y1 = cy - top;
-        det.bbox.x2 = cx + right;
-        det.bbox.y2 = cy + bottom;
+        det.bbox.x1    = x1;
+        det.bbox.y1    = y1;
+        det.bbox.x2    = x2;
+        det.bbox.y2    = y2;
 
-        if (!labels.empty() && best_class < static_cast<int>(labels.size())) {
+        if (!labels.empty() && best_class < (int)labels.size()) {
             det.class_name = labels[best_class];
         }
 
         all_detections.push_back(det);
     }
 
-    LOG_DEBUG("YOLOv11: {} detections before NMS", all_detections.size());
+    LOG_DEBUG("YOLOv11: {} candidates before NMS", all_detections.size());
 
-    // NMS
+    // 3. 非极大值抑制 (NMS)
+    // 这一步非常重要，会把你实验中看到的“重叠框”滤掉
     nms(all_detections, nms_thresh);
 
     LOG_DEBUG("YOLOv11: {} detections after NMS", all_detections.size());
 
-    // 坐标映射到原始图像
+    // 4. 坐标映射
+    // 将 640x640 尺度下的坐标缩放到原始图像尺寸 (orig_w, orig_h)
     scale_coords(all_detections, model_w, model_h, orig_w, orig_h);
 
     return all_detections;
