@@ -59,8 +59,7 @@ find_package_handle_standard_args(FFmpegRK
         AVCODEC_INCLUDE_DIR  AVCODEC_LIBRARY
         AVUTIL_INCLUDE_DIR   AVUTIL_LIBRARY
     FAIL_MESSAGE
-        "FFmpeg-RK not found at ${FFMPEG_RK_ROOT}. "
-        "Set FFMPEG_RK_ROOT to the FFmpeg installation directory."
+        "FFmpeg-RK not found at ${FFMPEG_RK_ROOT}. Set FFMPEG_RK_ROOT to the FFmpeg installation directory."
 )
 
 if(FFmpegRK_FOUND)

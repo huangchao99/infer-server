@@ -68,7 +68,7 @@ public:
         const std::vector<std::string>& labels);
 
     /**
-     * @brief YOLOv8/v11 后处理 (anchor-free, DFL)
+     * @brief YOLOv8 后处理 (anchor-free, DFL, 3 个输出头)
      *
      * @param outputs     3 个输出头的 float 数据指针 (每头: box+score 合并)
      * @param attrs       3 个输出头的 tensor 属性
@@ -82,6 +82,28 @@ public:
      * @return 检测结果列表
      */
     static std::vector<Detection> yolov8(
+        const std::vector<float*>& outputs,
+        const std::vector<TensorAttr>& attrs,
+        int model_w, int model_h,
+        int orig_w, int orig_h,
+        float conf_thresh, float nms_thresh,
+        const std::vector<std::string>& labels);
+
+    /**
+     * @brief YOLOv11 后处理 (anchor-free, 单输出头融合格式)
+     *
+     * @param outputs     1 个输出头的 float 数据指针, shape: [1, num_classes+4, num_anchors]
+     * @param attrs       1 个输出头的 tensor 属性
+     * @param model_w     模型输入宽度
+     * @param model_h     模型输入高度
+     * @param orig_w      原始帧宽度
+     * @param orig_h      原始帧高度
+     * @param conf_thresh 置信度阈值
+     * @param nms_thresh  NMS 阈值
+     * @param labels      类别标签列表
+     * @return 检测结果列表
+     */
+    static std::vector<Detection> yolov11(
         const std::vector<float*>& outputs,
         const std::vector<TensorAttr>& attrs,
         int model_w, int model_h,

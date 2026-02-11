@@ -175,9 +175,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::cout << "  Stream: " << decoder.width() << "x" << decoder.height()
-              << " @ " << decoder.fps() << " fps"
-              << " codec=" << decoder.codec_name()
+    std::cout << "  Stream: " << decoder.get_width() << "x" << decoder.get_height()
+              << " @ " << decoder.get_fps() << " fps"
+              << " codec=" << decoder.get_codec_name()
               << " hw=" << (decoder.is_hardware() ? "yes" : "no") << std::endl;
 
     // ========================
@@ -209,7 +209,7 @@ int main(int argc, char* argv[]) {
             model_input_w, model_input_h
         );
 
-        if (rgb_data.empty()) {
+        if (!rgb_data || rgb_data->empty()) {
             std::cerr << "  RGA conversion failed at frame " << i << std::endl;
             continue;
         }
@@ -228,7 +228,7 @@ int main(int argc, char* argv[]) {
         task.model_type = mc.model_type;
         task.conf_threshold = mc.conf_threshold;
         task.nms_threshold = mc.nms_threshold;
-        task.input_data = std::make_shared<std::vector<uint8_t>>(std::move(rgb_data));
+        task.input_data = std::move(rgb_data);
         task.input_width = model_input_w;
         task.input_height = model_input_h;
         // 单模型, 不需要 aggregator
@@ -277,9 +277,18 @@ int main(int argc, char* argv[]) {
     engine.shutdown();
 
     // 验证
-    bool success = (g_results_received.load() > 0) && (frames_submitted > 0);
-    std::cout << "\n" << (success ? "PASS" : "FAIL")
-              << ": Pipeline integration test" << std::endl;
+    bool success = (g_results_received.load() > 0) && 
+                   (frames_submitted > 0) &&
+                   (g_total_detections.load() > 0);  // 要求至少有检测结果
+    
+    if (!success) {
+        std::cout << "\n" << "FAIL: Pipeline integration test" << std::endl;
+        if (g_total_detections.load() == 0) {
+            std::cout << "  Reason: No detections found (possible post-processing issue)" << std::endl;
+        }
+    } else {
+        std::cout << "\n" << "PASS: Pipeline integration test" << std::endl;
+    }
 
     logger::shutdown();
     return success ? 0 : 1;

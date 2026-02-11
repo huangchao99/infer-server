@@ -46,8 +46,7 @@ include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(RGA
     REQUIRED_VARS RGA_INCLUDE_DIR RGA_LIBRARY
     FAIL_MESSAGE
-        "RGA (librga) not found. Install with: sudo apt install librga-dev "
-        "or check /usr/include/rga/ and /usr/lib/"
+        "RGA (librga) not found. Install with: sudo apt install librga-dev or check /usr/include/rga/ and /usr/lib/"
 )
 
 if(RGA_FOUND)
