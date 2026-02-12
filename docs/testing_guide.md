@@ -780,10 +780,413 @@ rm -f /tmp/infer_server.ipc
 
 ---
 
-## 下一阶段预告
+## 阶段 4: StreamManager + REST API + 系统集成
 
-阶段 4 将添加:
-- StreamManager (流生命周期管理)
-- REST API 服务器 (cpp-httplib)
-- 任务持久化与自动恢复
-- 完整系统集成测试
+阶段 4 新增组件:
+- **StreamManager**: 流生命周期管理 (添加/删除/启停、解码线程编排、自动重连、统计)
+- **RestServer**: HTTP REST API 服务器 (基于 cpp-httplib)
+- **任务持久化**: 流配置自动保存/恢复
+- **main.cpp 完整串联**: 所有组件的创建、初始化和优雅关闭
+
+### 新增依赖
+
+```bash
+# cpp-httplib 通过 CMake FetchContent 自动获取, 无需手动安装
+# 其他依赖与 Phase 1-3 相同
+```
+
+### 构建 (含 Phase 4)
+
+```bash
+cd build
+cmake .. \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DENABLE_FFMPEG=ON \
+  -DENABLE_RGA=ON \
+  -DENABLE_RKNN=ON \
+  -DENABLE_ZMQ=ON \
+  -DENABLE_HTTP=ON \
+  -DBUILD_TESTS=ON
+
+make -j$(nproc)
+```
+
+### REST API 端点一览
+
+| 方法   | 路径                        | 说明               |
+|--------|-----------------------------|--------------------|
+| POST   | `/api/streams`              | 添加流 (含自动启动) |
+| DELETE | `/api/streams/:cam_id`      | 移除流             |
+| GET    | `/api/streams`              | 获取所有流状态     |
+| GET    | `/api/streams/:cam_id`      | 获取单个流状态     |
+| POST   | `/api/streams/:cam_id/start`| 启动流             |
+| POST   | `/api/streams/:cam_id/stop` | 停止流             |
+| POST   | `/api/streams/start_all`    | 启动所有流         |
+| POST   | `/api/streams/stop_all`     | 停止所有流         |
+| GET    | `/api/status`               | 服务器全局状态     |
+| GET    | `/api/cache/image`          | 获取缓存图片       |
+
+---
+
+### 4.1 REST API 单元测试 (test_rest_api)
+
+**不需要 RKNN/FFmpeg 等硬件**, 可在任意 Linux 开发机上运行。
+测试 API 层面的请求/响应正确性。
+
+```bash
+cd build
+./tests/test_rest_api
+```
+
+**期望输出:**
+
+```
+=== REST API Unit Tests ===
+
+[Test 1] GET /api/status
+  Response: {"code":0, "data":{"streams_total":0, ...}, "message":"success"}
+
+[Test 2] GET /api/streams (empty)
+
+[Test 3] POST /api/streams (add cam01)
+  Response: {"code":0, "data":{"cam_id":"cam01"}, "message":"Stream cam01 added"}
+
+[Test 4] POST /api/streams (duplicate cam01)
+  Response: {"code":409, "data":{}, "message":"Stream cam01 already exists"}
+
+...
+
+=== Results ===
+PASSED: N
+FAILED: 0
+ALL TESTS PASSED!
+```
+
+### 4.2 完整系统集成测试 (test_system)
+
+**需要全部硬件** (RKNN + FFmpeg + RGA + TurboJPEG + ZMQ) + RTSP 摄像头 + RKNN 模型。
+
+```bash
+cd build
+sudo ./tests/test_system \
+  "rtsp://admin:hifleet321@192.168.254.124:554/Streaming/Channels/102" \
+  "/path/to/model.rknn" \
+  "yolov5" \
+  "cam01"
+```
+
+**期望输出:**
+
+```
+=== System Integration Test ===
+RTSP:  rtsp://admin:hifleet321@192.168.254.124:554/...
+Model: /path/to/model.rknn
+
+[Test 1] Add stream via POST /api/streams
+  Response: {"code":0, "data":{"cam_id":"cam01"}, "message":"Stream cam01 added"}
+
+[Test 2] Waiting 8 seconds for decode & inference...
+
+[Test 3] GET /api/streams/cam01
+  Status:         running
+  Decoded frames: 200
+  Inferred frames: 38
+  Decode FPS:     25.1
+  Infer FPS:      4.8
+
+[Test 4] GET /api/status
+  Server status: { "version":"0.1.0", "streams_total":1, ... }
+
+[Test 5] GET /api/cache/image?stream_id=cam01
+  Got JPEG image: 34521 bytes
+  Saved to /tmp/test_system_cached.jpg
+
+...
+
+=== System Integration Test Results ===
+PASSED: N
+FAILED: 0
+ALL TESTS PASSED!
+```
+
+### 4.3 使用 curl 手动测试 REST API
+
+启动服务器:
+
+```bash
+cd build
+sudo ./infer_server ../config/server.json
+```
+
+#### 添加流
+
+```bash
+curl -X POST http://localhost:8080/api/streams \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cam_id": "cam01",
+    "rtsp_url": "rtsp://admin:hifleet321@192.168.254.124:554/Streaming/Channels/102",
+    "frame_skip": 5,
+    "models": [{
+      "model_path": "/path/to/model.rknn",
+      "task_name": "detection",
+      "model_type": "yolov5",
+      "input_width": 640,
+      "input_height": 640,
+      "conf_threshold": 0.25,
+      "nms_threshold": 0.45
+    }]
+  }'
+```
+
+**响应:**
+```json
+{"code":0,"data":{"cam_id":"cam01"},"message":"Stream cam01 added"}
+```
+
+#### 查询所有流状态
+
+```bash
+curl http://localhost:8080/api/streams | python3 -m json.tool
+```
+
+**响应:**
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": [{
+    "cam_id": "cam01",
+    "rtsp_url": "rtsp://...",
+    "status": "running",
+    "decoded_frames": 500,
+    "inferred_frames": 100,
+    "decode_fps": 25.0,
+    "infer_fps": 5.0,
+    "reconnect_count": 0,
+    "uptime_seconds": 20.0
+  }]
+}
+```
+
+#### 查询单个流状态
+
+```bash
+curl http://localhost:8080/api/streams/cam01 | python3 -m json.tool
+```
+
+#### 查询服务器全局状态
+
+```bash
+curl http://localhost:8080/api/status | python3 -m json.tool
+```
+
+**响应:**
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "version": "0.1.0",
+    "uptime_seconds": 60.5,
+    "streams_total": 1,
+    "streams_running": 1,
+    "infer_queue_size": 0,
+    "infer_queue_dropped": 0,
+    "infer_total_processed": 100,
+    "zmq_published": 100,
+    "cache_memory_mb": 5.2,
+    "cache_total_frames": 100
+  }
+}
+```
+
+#### 获取缓存图片
+
+```bash
+# 获取最新帧
+curl -o /tmp/cached.jpg http://localhost:8080/api/cache/image?stream_id=cam01
+
+# 获取指定时间戳附近的帧
+curl -o /tmp/cached.jpg "http://localhost:8080/api/cache/image?stream_id=cam01&ts=1715600000000"
+
+# 使用 file 命令验证 JPEG
+file /tmp/cached.jpg
+# 输出: /tmp/cached.jpg: JPEG image data, ...
+```
+
+#### 停止/启动流
+
+```bash
+# 停止
+curl -X POST http://localhost:8080/api/streams/cam01/stop
+
+# 启动
+curl -X POST http://localhost:8080/api/streams/cam01/start
+
+# 停止所有
+curl -X POST http://localhost:8080/api/streams/stop_all
+
+# 启动所有
+curl -X POST http://localhost:8080/api/streams/start_all
+```
+
+#### 删除流
+
+```bash
+curl -X DELETE http://localhost:8080/api/streams/cam01
+```
+
+#### 添加多个流
+
+```bash
+# 添加第二个流
+curl -X POST http://localhost:8080/api/streams \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cam_id": "cam02",
+    "rtsp_url": "rtsp://admin:hifleet321@192.168.254.123:554/Streaming/Channels/101",
+    "frame_skip": 5,
+    "models": [{
+      "model_path": "/path/to/model.rknn",
+      "task_name": "detection",
+      "model_type": "yolov5",
+      "input_width": 640,
+      "input_height": 640
+    }]
+  }'
+```
+
+### 4.4 持久化与自动恢复测试
+
+1. 启动服务器并添加流:
+
+```bash
+sudo ./infer_server ../config/server.json
+# 在另一个终端:
+curl -X POST http://localhost:8080/api/streams -H "Content-Type: application/json" \
+  -d '{"cam_id":"cam01","rtsp_url":"rtsp://...","frame_skip":5,"models":[...]}'
+```
+
+2. 验证持久化文件已创建:
+
+```bash
+cat /etc/infer-server/streams.json | python3 -m json.tool
+```
+
+3. Ctrl+C 停止服务器, 然后重启:
+
+```bash
+sudo ./infer_server ../config/server.json
+```
+
+4. 观察日志, 应该看到自动恢复:
+
+```
+[info] Found 1 persisted stream(s), auto-starting...
+[info]   - [cam01] rtsp://... (1 model(s), skip=5)
+[info] Loading 1 persisted stream(s)...
+[info] Adding stream: [cam01] rtsp://... (skip=5, 1 model(s))
+[info] [cam01] Stream opened: 640x360 @ 25.0fps codec=h264_rkmpp hw=yes
+```
+
+5. 验证流已自动启动:
+
+```bash
+curl http://localhost:8080/api/streams | python3 -m json.tool
+```
+
+### 4.5 ZMQ 输出验证 (配合 zmq_subscriber)
+
+在另一个终端运行 ZMQ 订阅者:
+
+```bash
+sudo ./tests/zmq_subscriber
+```
+
+然后在服务器中添加流, 应该能看到推理结果 JSON 输出。
+
+---
+
+### Phase 4 故障排除
+
+#### REST API 无法访问
+
+```bash
+# 检查端口是否被占用
+ss -tlnp | grep 8080
+
+# 检查防火墙
+sudo ufw status
+
+# 修改配置文件中的端口
+# config/server.json -> "http_port": 8081
+```
+
+#### 流添加后状态一直是 reconnecting
+
+```bash
+# 检查 RTSP 地址是否可达
+ffmpeg -rtsp_transport tcp -i "rtsp://..." -c:v rawvideo -f null - 2>&1 | head -20
+
+# 检查解码器是否可用
+sudo ls -la /dev/mpp_service
+```
+
+#### 持久化文件创建失败
+
+```bash
+# 确保目录存在且有写权限
+sudo mkdir -p /etc/infer-server
+sudo chmod 755 /etc/infer-server
+
+# 或修改配置使用本地路径
+# "streams_save_path": "./streams.json"
+```
+
+#### 缓存图片返回 503
+
+```
+说明 TurboJPEG 或 RGA 未编译/不可用。
+检查构建输出中 TurboJPEG 和 RGA 是否被检测到。
+```
+
+---
+
+## 完整构建摘要
+
+```bash
+# 安装所有依赖 (RK3576/RK3588 设备上)
+sudo apt install -y libzmq3-dev libturbojpeg0-dev
+
+# 完整构建
+mkdir -p build && cd build
+cmake .. \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DENABLE_FFMPEG=ON \
+  -DENABLE_RGA=ON \
+  -DENABLE_RKNN=ON \
+  -DENABLE_ZMQ=ON \
+  -DENABLE_HTTP=ON \
+  -DBUILD_TESTS=ON
+
+make -j$(nproc)
+
+# 运行所有不需要硬件的测试
+ctest --output-on-failure
+
+# 测试输出应该包括:
+# test_bounded_queue ... Passed
+# test_config        ... Passed
+# test_image_cache   ... Passed
+# test_post_process  ... Passed
+# test_frame_result_collector ... Passed
+# test_zmq_publisher ... Passed
+# test_rest_api      ... Passed
+
+# 运行需要硬件的集成测试
+sudo ./tests/test_system "rtsp://..." "/path/to/model.rknn" "yolov5"
+
+# 启动正式服务
+sudo ./infer_server ../config/server.json
+```

@@ -29,6 +29,9 @@ option(ENABLE_RGA    "Enable RGA hardware processing"    ON)
 option(ENABLE_RKNN  "Enable RKNN NPU inference"         ON)
 option(ENABLE_ZMQ   "Enable ZeroMQ output"              ON)
 
+# Phase 4 options
+option(ENABLE_HTTP  "Enable HTTP REST API server"        ON)
+
 # ========================
 # CMake module path
 # ========================
@@ -55,6 +58,18 @@ FetchContent_Declare(
 
 message(STATUS "Fetching third-party dependencies (nlohmann/json, spdlog)...")
 FetchContent_MakeAvailable(json spdlog)
+
+# cpp-httplib (header-only HTTP server/client library)
+if(ENABLE_HTTP)
+    FetchContent_Declare(
+        httplib
+        URL https://github.com/yhirose/cpp-httplib/archive/refs/tags/v0.18.3.tar.gz
+    )
+    set(HTTPLIB_COMPILE OFF CACHE BOOL "" FORCE)
+    FetchContent_Populate(httplib)
+    set(HTTPLIB_INCLUDE_DIR ${httplib_SOURCE_DIR})
+    message(STATUS "cpp-httplib header dir: ${HTTPLIB_INCLUDE_DIR}")
+endif()
 
 # cppzmq (header-only C++ wrapper for ZeroMQ)
 if(ENABLE_ZMQ)
@@ -167,6 +182,18 @@ if(ENABLE_ZMQ)
     )
 endif()
 
+# StreamManager (流生命周期管理, 条件引用硬件组件)
+list(APPEND CORE_SOURCES
+    src/stream/stream_manager.cpp
+)
+
+# REST API server (needs cpp-httplib)
+if(ENABLE_HTTP)
+    list(APPEND CORE_SOURCES
+        src/api/rest_server.cpp
+    )
+endif()
+
 add_library(infer_server_core STATIC ${CORE_SOURCES})
 
 target_include_directories(infer_server_core PUBLIC
@@ -226,6 +253,12 @@ if(ENABLE_ZMQ)
     target_compile_definitions(infer_server_core PUBLIC HAS_ZMQ=1)
 endif()
 
+# cpp-httplib
+if(ENABLE_HTTP)
+    target_include_directories(infer_server_core PUBLIC ${HTTPLIB_INCLUDE_DIR})
+    target_compile_definitions(infer_server_core PUBLIC HAS_HTTP=1)
+endif()
+
 # ========================
 # Main executable
 # ========================
@@ -261,4 +294,5 @@ message(STATUS "  RGA:          ${ENABLE_RGA}")
 message(STATUS "  TurboJPEG:    ${TurboJPEG_FOUND}")
 message(STATUS "  RKNN:         ${ENABLE_RKNN}")
 message(STATUS "  ZeroMQ:       ${ENABLE_ZMQ}")
+message(STATUS "  HTTP API:     ${ENABLE_HTTP}")
 message(STATUS "========================================")

@@ -74,3 +74,21 @@ if(ENABLE_RKNN AND ENABLE_FFMPEG AND ENABLE_RGA)
     target_link_libraries(test_infer_pipeline PRIVATE infer_server_core)
     # 不注册到 CTest (需要 RTSP + 模型参数, 手动运行)
 endif()
+
+# ========================
+# Phase 4: StreamManager + REST API 测试
+# ========================
+
+# Phase 4: REST API 单元测试 (不需要全部硬件, 可在开发机运行)
+if(ENABLE_HTTP)
+    add_executable(test_rest_api test_rest_api.cpp)
+    target_link_libraries(test_rest_api PRIVATE infer_server_core)
+    add_test(NAME test_rest_api COMMAND test_rest_api)
+endif()
+
+# Phase 4: 完整系统集成测试 (需要全部硬件 + RTSP + 模型)
+if(ENABLE_HTTP AND ENABLE_RKNN AND ENABLE_FFMPEG AND ENABLE_RGA)
+    add_executable(test_system test_system.cpp)
+    target_link_libraries(test_system PRIVATE infer_server_core)
+    # 不注册到 CTest (需要 RTSP + 模型参数, 手动运行)
+endif()
