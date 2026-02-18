@@ -46,10 +46,12 @@ bool InferenceEngine::init() {
 
     // 创建工作线程
     int num_workers = config_.num_infer_workers;
+    int num_npu_cores = config_.num_npu_cores;
+    LOG_INFO("  NPU cores: {}", num_npu_cores);
     workers_.reserve(num_workers);
 
     for (int i = 0; i < num_workers; i++) {
-        int core_mask = NpuCoreMask::from_worker_id(i);
+        int core_mask = NpuCoreMask::from_worker_id(i, num_npu_cores);
         auto worker = std::make_unique<InferWorker>(
             i, core_mask, model_mgr_, task_queue_,
             [this](FrameResult result) {
@@ -77,6 +79,14 @@ bool InferenceEngine::load_models(const std::vector<ModelConfig>& models) {
             if (!model_mgr_.load_model(mc.model_path)) {
                 LOG_ERROR("Failed to load model: {}", mc.model_path);
                 all_ok = false;
+                continue;
+            }
+            // 预创建所有 worker context，避免惰性创建时与 RGA 硬件并发冲突
+            for (auto& worker : workers_) {
+                if (!worker->pre_create_context(mc.model_path)) {
+                    LOG_ERROR("Failed to pre-create context for worker {}", worker->worker_id());
+                    all_ok = false;
+                }
             }
         }
     }

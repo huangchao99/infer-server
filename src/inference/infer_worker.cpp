@@ -146,8 +146,7 @@ void InferWorker::process_task(InferTask& task) {
 
     auto t_infer_done = std::chrono::steady_clock::now();
 
-    // 6. 后处理
-    // 准备输出数据指针和属性
+    // 6. 后处理 (纯 CPU，不需要 RKNN 锁)
     std::vector<float*> output_ptrs(n_output);
     for (uint32_t i = 0; i < n_output; i++) {
         output_ptrs[i] = static_cast<float*>(rknn_outputs[i].buf);
@@ -165,7 +164,6 @@ void InferWorker::process_task(InferTask& task) {
         task.labels
     );
 
-    // 释放 RKNN 输出
     rknn_outputs_release(ctx, n_output, rknn_outputs.data());
 
     auto t_post_done = std::chrono::steady_clock::now();
@@ -215,6 +213,19 @@ void InferWorker::process_task(InferTask& task) {
 // ============================================================
 // Context 管理
 // ============================================================
+
+bool InferWorker::pre_create_context(const std::string& model_path) {
+    if (contexts_.count(model_path)) return true;
+
+    LOG_INFO("InferWorker[{}]: pre-creating context for model: {}", worker_id_, model_path);
+    rknn_context ctx = model_mgr_.create_worker_context(model_path, core_mask_);
+    if (ctx == 0) {
+        LOG_ERROR("InferWorker[{}]: failed to pre-create context for: {}", worker_id_, model_path);
+        return false;
+    }
+    contexts_[model_path] = ctx;
+    return true;
+}
 
 rknn_context InferWorker::get_or_create_context(const std::string& model_path) {
     auto it = contexts_.find(model_path);

@@ -34,6 +34,12 @@
 #endif
 
 #include <cstring>
+#include <mutex>
+
+// RGA 全局互斥锁 - 修复线程安全问题
+// 根据调试分析（valgrind + gdb + tsan），RGA 库在多线程环境下存在内存损坏问题
+// 所有 RGA 操作必须通过这个锁进行串行化
+static std::mutex g_rga_mutex;
 
 namespace infer_server {
 
@@ -58,13 +64,16 @@ std::shared_ptr<std::vector<uint8_t>> RgaProcessor::nv12_to_rgb_resize(
     // ========================
     // 使用 im2d API
     // ========================
+    // 使用 RGA 全局锁保护所有 RGA 操作，防止多线程并发导致的内存损坏
+    std::lock_guard<std::mutex> rga_lock(g_rga_mutex);
+
     // wrapbuffer_virtualaddr 参数说明：
     //   vir_addr: 虚拟地址
     //   width, height: 图像的逻辑宽高
     //   format: 像素格式
     //   wstride: 每行步长（像素），通常等于 width
     //   hstride: 图像的虚拟高度（像素），对于 NV12 就是 height
-    
+
     rga_buffer_t src_buf = wrapbuffer_virtualaddr(
         const_cast<uint8_t*>(nv12_data), src_w, src_h,
         RK_FORMAT_YCbCr_420_SP, src_w, src_h);
@@ -77,7 +86,7 @@ std::shared_ptr<std::vector<uint8_t>> RgaProcessor::nv12_to_rgb_resize(
     // imresize 可以同时处理格式转换和缩放
     IM_STATUS status = imresize(src_buf, dst_buf);
     if (status != IM_STATUS_SUCCESS) {
-        LOG_ERROR("RGA imresize (NV12->RGB) failed: {} (status={})", 
+        LOG_ERROR("RGA imresize (NV12->RGB) failed: {} (status={})",
                   imStrError(status), static_cast<int>(status));
         return nullptr;
     }
@@ -108,6 +117,10 @@ std::shared_ptr<std::vector<uint8_t>> RgaProcessor::nv12_resize(
     auto nv12_out = std::make_shared<std::vector<uint8_t>>(dst_size);
 
 #if defined(RGA_USE_IM2D_HPP) || defined(RGA_USE_IM2D_C)
+    // 使用 RGA 全局锁保护所有 RGA 操作，防止多线程并发导致的内存损坏
+    // 注意：wrapbuffer_virtualaddr 也必须在锁内调用，因为 RGA 库内部可能访问全局状态
+    std::lock_guard<std::mutex> rga_lock(g_rga_mutex);
+
     rga_buffer_t src_buf = wrapbuffer_virtualaddr(
         const_cast<uint8_t*>(nv12_data), src_w, src_h,
         RK_FORMAT_YCbCr_420_SP, src_w, src_h);
@@ -118,7 +131,7 @@ std::shared_ptr<std::vector<uint8_t>> RgaProcessor::nv12_resize(
 
     IM_STATUS status = imresize(src_buf, dst_buf);
     if (status != IM_STATUS_SUCCESS) {
-        LOG_ERROR("RGA imresize (NV12->NV12) failed: {} (status={})", 
+        LOG_ERROR("RGA imresize (NV12->NV12) failed: {} (status={})",
                   imStrError(status), static_cast<int>(status));
         return nullptr;
     }
