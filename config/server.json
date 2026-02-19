@@ -1,14 +1,9 @@
 {
   "http_port": 8080,
   "zmq_endpoint": "ipc:///tmp/infer_server.ipc",
-  "num_infer_workers": 3,
+  "num_infer_workers": 2,
   "decode_queue_size": 2,
-  "infer_queue_size": 18,
+  "infer_queue_size": 12,
   "streams_save_path": "/etc/infer-server/streams.json",
-  "log_level": "info",
-  "cache_duration_sec": 5,
-  "cache_jpeg_quality": 75,
-  "cache_resize_width": 640,
-  "cache_resize_height": 0,
-  "cache_max_memory_mb": 64
+  "log_level": "info"
 }

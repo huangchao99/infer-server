@@ -54,10 +54,16 @@ public:
     /// @return true 成功, false 失败 (错误信息通过 LOG_ERROR 输出)
     bool open(const Config& config);
 
-    /// 解码一帧
+    /// 解码一帧并提取 NV12 数据
     /// 阻塞直到获取到下一帧或发生错误
     /// @return DecodedFrame (NV12 格式), 如果流结束或出错返回 nullopt
     std::optional<DecodedFrame> decode_frame();
+
+    /// 解码一帧但丢弃数据（跳帧优化）
+    /// 保持解码器状态推进，但跳过 GPU→CPU 拷贝和 NV12 提取，
+    /// 避免每帧 ~1.4MB 的内存分配和 memcpy 开销。
+    /// @return true 成功解码（数据已丢弃），false 流结束或出错
+    bool skip_frame();
 
     /// 关闭解码器并释放所有资源
     void close();

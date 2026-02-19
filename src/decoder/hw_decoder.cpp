@@ -293,6 +293,45 @@ std::optional<DecodedFrame> HwDecoder::decode_frame() {
     }
 }
 
+bool HwDecoder::skip_frame() {
+    if (!is_open_) {
+        return false;
+    }
+
+    while (true) {
+        int ret = av_read_frame(fmt_ctx_, packet_);
+        if (ret < 0) {
+            return false;
+        }
+
+        if (packet_->stream_index != video_stream_idx_) {
+            av_packet_unref(packet_);
+            continue;
+        }
+
+        ret = avcodec_send_packet(codec_ctx_, packet_);
+        av_packet_unref(packet_);
+        if (ret < 0) {
+            if (ret != AVERROR(EAGAIN)) {
+                LOG_WARN("Error sending packet to decoder, skipping");
+            }
+            continue;
+        }
+
+        ret = avcodec_receive_frame(codec_ctx_, frame_);
+        if (ret == AVERROR(EAGAIN)) {
+            continue;
+        }
+        if (ret < 0) {
+            return false;
+        }
+
+        // 成功解码，直接丢弃帧数据（不做 HW transfer 和 NV12 extract）
+        av_frame_unref(frame_);
+        return true;
+    }
+}
+
 std::shared_ptr<std::vector<uint8_t>> HwDecoder::extract_nv12(AVFrame* frame) {
     int w = frame->width;
     int h = frame->height;
