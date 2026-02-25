@@ -148,7 +148,7 @@ sudo make install
 ```json
 {
   "http_port": 8080,                              // HTTP API 端口
-  "zmq_endpoint": "ipc:///tmp/infer_server.ipc",  // ZeroMQ 发布端点
+  "zmq_endpoint": "tcp://0.0.0.0:5555",  // ZeroMQ 发布端点 (TCP)
   "num_infer_workers": 3,                         // 推理工作线程数
   "decode_queue_size": 2,                         // 解码队列大小
   "infer_queue_size": 18,                         // 推理队列大小
@@ -241,7 +241,7 @@ import zmq
 
 context = zmq.Context()
 socket = context.socket(zmq.SUB)
-socket.connect("ipc:///tmp/infer_server.ipc")
+socket.connect("tcp://127.0.0.1:5555")
 socket.setsockopt_string(zmq.SUBSCRIBE, "")  # 订阅所有消息
 
 while True:

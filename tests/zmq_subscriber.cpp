@@ -7,9 +7,9 @@
  *
  * 用法:
  *   ./zmq_subscriber [endpoint]
- *   ./zmq_subscriber                              # 默认 ipc:///tmp/infer_server.ipc
+ *   ./zmq_subscriber                              # 默认 tcp://127.0.0.1:5555
  *   ./zmq_subscriber tcp://127.0.0.1:5555
- *   ./zmq_subscriber ipc:///tmp/infer_server.ipc
+ *   ./zmq_subscriber ipc:///tmp/infer_server.ipc   # 若 server 使用 IPC
  *
  * 输出格式:
  *   [序号] [摄像头ID] frame=帧号 ts=时间戳 results=模型数 detections=总检测数
@@ -34,7 +34,7 @@ static void signal_handler(int) {
 }
 
 int main(int argc, char* argv[]) {
-    std::string endpoint = "ipc:///tmp/infer_server.ipc";
+    std::string endpoint = "tcp://127.0.0.1:5555";
     if (argc > 1) {
         endpoint = argv[1];
     }

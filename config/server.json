@@ -1,6 +1,6 @@
 {
   "http_port": 8080,
-  "zmq_endpoint": "ipc:///tmp/infer_server.ipc",
+  "zmq_endpoint": "tcp://0.0.0.0:5555",
   "num_infer_workers": 2,
   "decode_queue_size": 2,
   "infer_queue_size": 12,

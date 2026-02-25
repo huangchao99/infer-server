@@ -972,7 +972,7 @@ setInterval(() => loadPreview('camera_001'), 1000);
 import zmq
 import json
 
-def subscribe_results(endpoint="ipc:///tmp/infer_server.ipc"):
+def subscribe_results(endpoint="tcp://127.0.0.1:5555"):
     """订阅推理结果"""
     context = zmq.Context()
     socket = context.socket(zmq.SUB)
@@ -1028,7 +1028,7 @@ int main() {
     zmq::context_t context(1);
     zmq::socket_t socket(context, zmq::socket_type::sub);
     
-    socket.connect("ipc:///tmp/infer_server.ipc");
+    socket.connect("tcp://127.0.0.1:5555");
     socket.set(zmq::sockopt::subscribe, "");
     
     std::cout << "Subscribed to infer_server results" << std::endl;
@@ -1256,7 +1256,7 @@ curl -X DELETE $BASE_URL/streams/$CAM_ID
 ```json
 {
   "http_port": 8080,
-  "zmq_endpoint": "ipc:///tmp/infer_server.ipc",
+  "zmq_endpoint": "tcp://0.0.0.0:5555",
   "num_infer_workers": 3,
   "decode_queue_size": 2,
   "infer_queue_size": 18,

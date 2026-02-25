@@ -17,7 +17,7 @@ namespace infer_server {
 /// 服务器全局配置
 struct ServerConfig {
     int http_port = 8080;                                       ///< REST API 端口
-    std::string zmq_endpoint = "ipc:///tmp/infer_server.ipc";   ///< ZeroMQ IPC 地址
+    std::string zmq_endpoint = "tcp://0.0.0.0:5555";   ///< ZeroMQ 发布地址 (TCP)
     int num_infer_workers = 3;                                  ///< 推理线程数 (建议等于 NPU 核心数)
     int num_npu_cores = 2;                                      ///< NPU 核心数 (RK3576=2, RK3588=3)
     int decode_queue_size = 2;                                  ///< 每路解码输出队列大小

@@ -7,7 +7,7 @@
  * 使用 PUB socket 将 FrameResult 以 JSON 格式发布。
  * 下游程序 (行为分析/报警) 通过 SUB socket 订阅。
  *
- * 默认 endpoint: ipc:///tmp/infer_server.ipc
+ * 默认 endpoint: tcp://0.0.0.0:5555
  * 通信模式: PUB/SUB
  * 消息格式: JSON 字符串 (UTF-8)
  */
@@ -32,9 +32,9 @@ class ZmqPublisher {
 public:
     /**
      * @brief 构造 ZMQ 发布器
-     * @param endpoint ZMQ endpoint (如 "ipc:///tmp/infer_server.ipc")
+     * @param endpoint ZMQ endpoint (如 "tcp://0.0.0.0:5555")
      */
-    explicit ZmqPublisher(const std::string& endpoint = "ipc:///tmp/infer_server.ipc");
+    explicit ZmqPublisher(const std::string& endpoint = "tcp://0.0.0.0:5555");
 
     ~ZmqPublisher();
 
