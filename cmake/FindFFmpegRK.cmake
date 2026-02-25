@@ -82,6 +82,7 @@ if(FFmpegRK_FOUND)
         z                # zlib - 用于压缩/解压 (SWF, CSCD, EXR, Flash 等格式)
         drm              # libdrm - DRM 硬件上下文
         rockchip_mpp     # librockchip_mpp - Rockchip MPP 硬件加速
+        lzma
     )
 
     # Runtime library path (needed since FFmpeg is in a non-standard location)

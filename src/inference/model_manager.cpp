@@ -164,25 +164,28 @@ rknn_context ModelManager::create_worker_context(const std::string& model_path, 
         return 0;
     }
 
-    rknn_context dup_ctx = 0;
-    int ret = rknn_dup_context(&it->second.master_ctx, &dup_ctx);
+    // 使用 rknn_init 为每个 worker 创建完全独立的上下文。
+    // rknn_dup_context 的"轻量级副本"在多线程并发推理时会共享内部状态，
+    // 导致 rknn_inputs_set / rknn_run 并发执行时出现堆内存损坏。
+    rknn_context ctx = 0;
+    int ret = rknn_init(&ctx, it->second.model_data.data(),
+                        static_cast<uint32_t>(it->second.model_data.size()),
+                        0, nullptr);
     if (ret != RKNN_SUCC) {
-        LOG_ERROR("rknn_dup_context failed for {}: ret={}", model_path, ret);
+        LOG_ERROR("rknn_init for worker context failed: {}: ret={}", model_path, ret);
         return 0;
     }
 
-    // 绑定 NPU 核心
     if (core_mask != NpuCoreMask::AUTO) {
-        ret = rknn_set_core_mask(dup_ctx, static_cast<rknn_core_mask>(core_mask));
+        ret = rknn_set_core_mask(ctx, static_cast<rknn_core_mask>(core_mask));
         if (ret != RKNN_SUCC) {
             LOG_WARN("rknn_set_core_mask({}) failed: ret={}, using AUTO", core_mask, ret);
-            // 不致命, 继续使用 AUTO 调度
         } else {
             LOG_DEBUG("Worker context bound to NPU core mask={}", core_mask);
         }
     }
 
-    return dup_ctx;
+    return ctx;
 }
 
 void ModelManager::release_worker_context(rknn_context ctx) {

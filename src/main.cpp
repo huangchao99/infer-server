@@ -89,6 +89,7 @@ int main(int argc, char* argv[]) {
     LOG_INFO("  HTTP port:        {}", config.http_port);
     LOG_INFO("  ZMQ endpoint:     {}", config.zmq_endpoint);
     LOG_INFO("  Infer workers:    {}", config.num_infer_workers);
+    LOG_INFO("  NPU cores:        {}", config.num_npu_cores);
     LOG_INFO("  Decode queue:     {}", config.decode_queue_size);
     LOG_INFO("  Infer queue:      {}", config.infer_queue_size);
     LOG_INFO("  Streams save:     {}", config.streams_save_path);

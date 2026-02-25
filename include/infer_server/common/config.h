@@ -19,6 +19,7 @@ struct ServerConfig {
     int http_port = 8080;                                       ///< REST API 端口
     std::string zmq_endpoint = "ipc:///tmp/infer_server.ipc";   ///< ZeroMQ IPC 地址
     int num_infer_workers = 3;                                  ///< 推理线程数 (建议等于 NPU 核心数)
+    int num_npu_cores = 2;                                      ///< NPU 核心数 (RK3576=2, RK3588=3)
     int decode_queue_size = 2;                                  ///< 每路解码输出队列大小
     int infer_queue_size = 18;                                  ///< 全局推理任务队列大小
     std::string streams_save_path = "/etc/infer-server/streams.json";  ///< 流配置持久化路径
@@ -34,6 +35,7 @@ struct ServerConfig {
     NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(
         ServerConfig,
         http_port, zmq_endpoint, num_infer_workers,
+        num_npu_cores,
         decode_queue_size, infer_queue_size,
         streams_save_path, log_level,
         cache_duration_sec, cache_jpeg_quality,

@@ -451,7 +451,27 @@ void StreamManager::decode_thread_func(StreamContext* ctx) {
         int orig_h = decoder.get_height();
 
         // === 解码循环 ===
+        int skip = ctx->config.frame_skip;
+
         while (!ctx->stop_requested.load(std::memory_order_relaxed)) {
+            local_frame_count++;
+            bool need_process = (skip <= 1) ||
+                (local_frame_count % static_cast<uint64_t>(skip)) == 0;
+
+            // 跳帧时用轻量级路径：只推进解码器，不做 GPU→CPU 拷贝和 NV12 提取
+            if (!need_process) {
+                if (!decoder.skip_frame()) {
+                    ctx->set_error("Decode failed or stream ended");
+                    ctx->state = static_cast<int>(StreamState::Reconnecting);
+                    ctx->reconnect_count.fetch_add(1, std::memory_order_relaxed);
+                    LOG_WARN("[{}] Decode failed, reconnecting in {}s...", cam_id, backoff_sec);
+                    decoder.close();
+                    break;
+                }
+                ctx->decoded_frames.fetch_add(1, std::memory_order_relaxed);
+                continue;
+            }
+
             auto frame = decoder.decode_frame();
             if (!frame) {
                 ctx->set_error("Decode failed or stream ended");
@@ -459,17 +479,9 @@ void StreamManager::decode_thread_func(StreamContext* ctx) {
                 ctx->reconnect_count.fetch_add(1, std::memory_order_relaxed);
                 LOG_WARN("[{}] Decode failed, reconnecting in {}s...", cam_id, backoff_sec);
                 decoder.close();
-                break;  // 跳到外层循环重连
+                break;
             }
-
-            local_frame_count++;
             ctx->decoded_frames.fetch_add(1, std::memory_order_relaxed);
-
-            // === 跳帧检查 ===
-            int skip = ctx->config.frame_skip;
-            if (skip > 1 && (local_frame_count % static_cast<uint64_t>(skip)) != 0) {
-                continue;
-            }
 
             // === 推理提交 ===
 #if defined(HAS_RKNN) && defined(HAS_RGA)

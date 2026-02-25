@@ -69,6 +69,9 @@ public:
     /// 已处理的任务计数
     uint64_t processed_count() const { return processed_count_.load(std::memory_order_relaxed); }
 
+    /// 预创建模型的 rknn_context (在流启动前调用，避免与 RGA 并发导致硬件冲突)
+    bool pre_create_context(const std::string& model_path);
+
 private:
     /// 主循环
     void run();

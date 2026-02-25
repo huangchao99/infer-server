@@ -37,15 +37,19 @@ struct NpuCoreMask {
     static constexpr int CORE_0_1 = 3;  ///< RKNN_NPU_CORE_0_1
     static constexpr int CORE_ALL = 7;  ///< RKNN_NPU_CORE_0_1_2
 
-    /// 根据 worker ID 返回对应的核心掩码
-    /// worker 0 -> Core0, 1 -> Core1, 2 -> Core2, >= 3 -> AUTO
-    static int from_worker_id(int worker_id) {
-        switch (worker_id) {
-            case 0: return CORE_0;
-            case 1: return CORE_1;
-            case 2: return CORE_2;
-            default: return AUTO;
+    /// 各核心掩码值 (按索引)
+    static constexpr int CORES[] = {CORE_0, CORE_1, CORE_2};
+
+    /// 根据 worker ID 和可用核心数返回对应的核心掩码
+    /// 超出可用核心数的 worker 使用 AUTO 调度
+    /// @param worker_id  工作线程 ID (0, 1, 2, ...)
+    /// @param num_cores  平台可用 NPU 核心数 (RK3576=2, RK3588=3)
+    static int from_worker_id(int worker_id, int num_cores = 2) {
+        if (num_cores <= 0 || worker_id < 0 || worker_id >= num_cores) {
+            return AUTO;
         }
+        if (num_cores > 3) num_cores = 3;
+        return CORES[worker_id];
     }
 };
 
@@ -136,9 +140,9 @@ public:
 
 private:
     struct LoadedModel {
-        rknn_context master_ctx = 0;   ///< 主 context (用于 dup)
+        rknn_context master_ctx = 0;   ///< 主 context (查询模型信息用)
         ModelInfo info;
-        std::vector<uint8_t> model_data; ///< 模型二进制数据 (dup_context 可能需要)
+        std::vector<uint8_t> model_data; ///< 模型二进制数据 (worker 独立 rknn_init 用)
     };
 
     mutable std::mutex mutex_;
