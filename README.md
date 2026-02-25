@@ -64,6 +64,11 @@ RTSP 流 → 硬件解码器 → RGA 处理器 → 推理引擎 → 后处理 �
 - **ZeroMQ**: 消息队列
   - 安装: `sudo apt install libzmq3-dev`
 
+#### 推荐依赖 (使用 RKNN 时)
+- **jemalloc**: 替代 glibc malloc，避免 RKNN Runtime 与 glibc 堆元数据冲突导致的崩溃（如 `malloc(): unsorted double linked list corrupted`）
+  - 安装: `sudo apt install libjemalloc2`
+  - 启动时需使用 `LD_PRELOAD`，见下方「启动服务器」
+
 #### 自动下载依赖 (通过 CMake FetchContent)
 - [nlohmann/json](https://github.com/nlohmann/json) v3.11.3
 - [spdlog](https://github.com/gabime/spdlog) v1.13.0
@@ -160,6 +165,16 @@ sudo make install
 ## 使用方法
 
 ### 启动服务器
+
+**推荐**：启用 RKNN 推理时，使用 jemalloc 可避免 RKNN Runtime 与 glibc malloc 的兼容性问题导致的崩溃。先安装 `libjemalloc2`，再通过 `LD_PRELOAD` 启动：
+
+```bash
+# 使用 jemalloc 启动（推荐，启用 RKNN 时）
+sudo apt install -y libjemalloc2
+sudo LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2 ./infer_server ../config/server.json
+```
+
+其他启动方式：
 
 ```bash
 # 使用默认配置
@@ -348,6 +363,19 @@ CMake Warning: FFmpeg-RK not found, hardware decoding disabled.
 - 减小 `cache_resize_width`
 - 降低 `decode_queue_size` 和 `infer_queue_size`
 
+### 4. 运行时报错 `malloc(): unsorted double linked list corrupted` 并崩溃
+
+这是 RKNN Runtime（librknnrt）与 glibc malloc 堆元数据的兼容性问题，与业务代码无关。
+
+**解决方法**：使用 jemalloc 替代 glibc malloc 启动：
+
+```bash
+sudo apt install -y libjemalloc2
+sudo LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2 ./infer_server ../config/server.json
+```
+
+更多背景与排查过程见项目内的 [CLAUDE.md](CLAUDE.md)。
+
 ## 许可证
 
 本项目基于 [MIT License](LICENSE) 开源。
@@ -374,6 +402,7 @@ CMake Warning: FFmpeg-RK not found, hardware decoding disabled.
 - ✅ 图像缓存
 - ✅ 流配置持久化
 - ✅ 完整的测试套件
+- ✅ 推荐使用 jemalloc（`LD_PRELOAD`）运行，避免 RKNN 与 glibc malloc 兼容性导致的堆损坏崩溃，详见 [CLAUDE.md](CLAUDE.md)
 
 ---
 
